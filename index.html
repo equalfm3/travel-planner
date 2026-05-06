@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wandr — AI Travel Planner</title>
+    <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+    <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="scanline-overlay"></div>
+    <canvas id="particle-canvas"></canvas>
+
+    <!-- Nav -->
+    <nav class="top-nav">
+        <div class="nav-brand">
+            <i class="ph ph-airplane-tilt"></i>
+            <span class="brand-text">Wandr</span>
+            <span class="brand-version">v1.0</span>
+        </div>
+        <div class="nav-actions">
+            <button class="nav-btn" id="nav-saved" title="Saved trips"><i class="ph ph-bookmark-simple"></i></button>
+            <div class="nav-status"><span class="status-dot"></span><span class="status-text">Ollama</span></div>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <header class="hero" id="hero">
+        <div class="hero-grid"></div>
+        <div class="hero-content">
+            <div class="hero-terminal">
+                <div class="terminal-bar">
+                    <span class="terminal-dot red"></span>
+                    <span class="terminal-dot yellow"></span>
+                    <span class="terminal-dot green"></span>
+                    <span class="terminal-title">wandr — plan</span>
+                </div>
+                <div class="terminal-body">
+                    <div class="terminal-line">
+                        <span class="prompt">$</span>
+                        <span class="typed-text" id="typed-text"></span>
+                        <span class="cursor">_</span>
+                    </div>
+                </div>
+            </div>
+            <h1 class="hero-title">
+                <span class="title-line">Plan your</span>
+                <span class="title-line accent">Next Trip</span>
+            </h1>
+            <p class="hero-subtitle">Give a destination, budget, and number of days. Get a day-by-day itinerary with real weather data, transport tips, food spots, and time estimates.</p>
+            <div class="hero-stats">
+                <div class="stat"><i class="ph ph-sun stat-icon"></i><span class="stat-label">Live Weather</span></div>
+                <div class="stat"><i class="ph ph-brain stat-icon"></i><span class="stat-label">AI Itinerary</span></div>
+                <div class="stat"><i class="ph ph-lock stat-icon"></i><span class="stat-label">Local</span></div>
+            </div>
+            <button class="hero-cta" id="start-btn"><i class="ph ph-compass"></i><span>Plan a Trip</span></button>
+        </div>
+    </header>
+
+    <!-- Main -->
+    <main class="app-container" id="app-container">
+
+        <!-- Input Section -->
+        <section class="section input-section" id="input-section">
+            <div class="section-header">
+                <span class="section-number">01</span>
+                <h2 class="section-title">Where to?</h2>
+            </div>
+
+            <div class="input-group">
+                <label class="input-label"><i class="ph ph-map-pin"></i> Destination</label>
+                <input type="text" id="destination-input" class="text-input" placeholder="City or region — e.g. Tokyo, Amalfi Coast, Iceland...">
+            </div>
+
+            <div class="input-row">
+                <div class="input-group">
+                    <label class="input-label"><i class="ph ph-calendar"></i> Days</label>
+                    <div class="chip-group" id="days-chips">
+                        <button class="chip" data-value="2">2</button>
+                        <button class="chip" data-value="3">3</button>
+                        <button class="chip active" data-value="5">5</button>
+                        <button class="chip" data-value="7">7</button>
+                        <button class="chip" data-value="10">10</button>
+                        <button class="chip" data-value="14">14</button>
+                    </div>
+                </div>
+                <div class="input-group">
+                    <label class="input-label"><i class="ph ph-wallet"></i> Budget</label>
+                    <div class="chip-group" id="budget-chips">
+                        <button class="chip" data-value="backpacker">Backpacker</button>
+                        <button class="chip active" data-value="moderate">Moderate</button>
+                        <button class="chip" data-value="comfort">Comfort</button>
+                        <button class="chip" data-value="luxury">Luxury</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="input-row">
+                <div class="input-group">
+                    <label class="input-label"><i class="ph ph-users"></i> Travelers</label>
+                    <div class="chip-group" id="travelers-chips">
+                        <button class="chip active" data-value="solo">Solo</button>
+                        <button class="chip" data-value="couple">Couple</button>
+                        <button class="chip" data-value="family">Family</button>
+                        <button class="chip" data-value="friends">Friends</button>
+                    </div>
+                </div>
+                <div class="input-group">
+                    <label class="input-label"><i class="ph ph-heart"></i> Interests</label>
+                    <div class="chip-group multi" id="interests-chips">
+                        <button class="chip" data-value="culture">Culture</button>
+                        <button class="chip" data-value="food">Food</button>
+                        <button class="chip" data-value="nature">Nature</button>
+                        <button class="chip" data-value="nightlife">Nightlife</button>
+                        <button class="chip" data-value="adventure">Adventure</button>
+                        <button class="chip" data-value="relaxation">Relaxation</button>
+                        <button class="chip" data-value="shopping">Shopping</button>
+                        <button class="chip" data-value="history">History</button>
+                        <button class="chip" data-value="photography">Photography</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="input-group">
+                <label class="input-label"><i class="ph ph-note"></i> Special requests (optional)</label>
+                <input type="text" id="notes-input" class="text-input" placeholder="Vegetarian food, avoid crowds, wheelchair accessible, early mornings...">
+            </div>
+
+            <div class="input-row">
+                <div class="input-group">
+                    <label class="input-label"><i class="ph ph-map-trifold"></i> Exploration Radius</label>
+                    <div class="chip-group" id="radius-chips">
+                        <button class="chip active" data-value="city-only">Stay in city</button>
+                        <button class="chip" data-value="30km">30 km radius</button>
+                        <button class="chip" data-value="60km">60 km radius</button>
+                        <button class="chip" data-value="100km">100 km radius</button>
+                        <button class="chip" data-value="region">Whole region</button>
+                    </div>
+                </div>
+                <div class="input-group">
+                    <label class="input-label"><i class="ph ph-airplane-takeoff"></i> Traveling from</label>
+                    <input type="text" id="origin-input" class="text-input" placeholder="Your departure city — e.g. Paris, London...">
+                </div>
+            </div>
+
+            <button class="generate-btn" id="generate-btn"><i class="ph ph-sparkle"></i><span>Generate Itinerary</span></button>
+        </section>
+
+        <!-- Destination Info -->
+        <section class="section info-section" id="info-section">
+            <div class="section-header">
+                <span class="section-number">02</span>
+                <h2 class="section-title" id="info-title">Destination</h2>
+            </div>
+            <div class="info-cards" id="info-cards"></div>
+        </section>
+
+        <!-- Itinerary -->
+        <section class="section itinerary-section" id="itinerary-section">
+            <div class="section-header">
+                <span class="section-number">03</span>
+                <h2 class="section-title">Your Itinerary</h2>
+                <div class="itin-actions">
+                    <button class="nav-btn" id="btn-save" title="Save trip"><i class="ph ph-bookmark-simple"></i></button>
+                    <button class="nav-btn" id="btn-copy" title="Copy as text"><i class="ph ph-copy"></i></button>
+                    <button class="nav-btn" id="btn-print" title="Print"><i class="ph ph-printer"></i></button>
+                </div>
+            </div>
+            <div class="loading-state" id="loading-state">
+                <div class="loading-dots"><span></span><span></span><span></span></div>
+                <p class="loading-text" id="loading-text">Planning your trip...</p>
+            </div>
+            <div class="itinerary-days" id="itinerary-days"></div>
+            <div class="trip-summary" id="trip-summary"></div>
+        </section>
+
+        <!-- Saved Trips -->
+        <section class="section saved-section" id="saved-section">
+            <div class="section-header">
+                <span class="section-number"><i class="ph ph-bookmark-simple"></i></span>
+                <h2 class="section-title">Saved Trips</h2>
+                <button class="back-btn" id="saved-back"><i class="ph ph-arrow-left"></i> Back</button>
+            </div>
+            <div class="saved-grid" id="saved-grid"></div>
+        </section>
+    </main>
+
+    <!-- Settings -->
+    <div class="modal-overlay" id="settings-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="modal-title-group"><i class="ph ph-gear modal-icon"></i><h2 class="modal-title">Settings</h2></div>
+                <button class="modal-close" id="settings-close"><i class="ph ph-x"></i></button>
+            </div>
+            <div class="modal-body">
+                <div class="setting-item"><label class="input-label">Ollama URL</label><input type="text" id="ollama-url" class="text-input" value="http://localhost:11434"></div>
+                <div class="setting-item"><label class="input-label">Model</label><input type="text" id="ollama-model" class="text-input" value="gemma3:12b"></div>
+                <button class="generate-btn" id="save-settings" style="margin-top:16px;"><i class="ph ph-floppy-disk"></i><span>Save</span></button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>
