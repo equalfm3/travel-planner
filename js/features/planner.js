@@ -131,8 +131,67 @@ export async function generateTrip() {
     state.currentTrip = { destination: dest, days, budget: state.budget, travelers: state.travelers, interests: state.interests, itinerary, weather, currency, createdAt: Date.now() };
     loading.classList.remove('visible');
     renderItinerary(itinerary, currency);
+    renderTripSummaryCard(itinerary, currency, weather);
+    renderPackingSuggestions(weather);
     renderSummary(itinerary, currency);
 }
+
+// ─── Regenerate Day ────────────────────────────────────────────────────────
+
+export async function regenerateDay(dayIndex) {
+    if (!state.currentTrip) return;
+
+    const { itinerary, currency } = state.currentTrip;
+    const dayData = itinerary[dayIndex];
+    if (!dayData) return;
+
+    const btn = document.querySelector(`[data-regen-day="${dayIndex}"]`);
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="ph ph-spinner"></i> Regenerating...';
+    }
+
+    try {
+        // Gather previous activities from other days to avoid repetition
+        const previousActivities = [];
+        itinerary.forEach((d, i) => {
+            if (i !== dayIndex) {
+                if (d.morning) previousActivities.push(d.morning.activity);
+                if (d.afternoon) previousActivities.push(d.afternoon.activity);
+                if (d.evening) previousActivities.push(d.evening.activity);
+            }
+        });
+
+        const isLastDay = (dayData.day === itinerary.length) && state.origin;
+        const activities = await askActivities(dayData.location, dayData.day, itinerary.length, isLastDay, previousActivities);
+
+        dayData.title = activities.title || dayData.location;
+        dayData.morning = activities.morning;
+        dayData.afternoon = activities.afternoon;
+        dayData.evening = activities.evening;
+
+        // Also regenerate food recommendation
+        dayData.food_rec = await askRestaurant(dayData.location);
+
+        // Re-render
+        renderItinerary(itinerary, currency);
+        renderTripSummaryCard(itinerary, currency, state.currentTrip.weather);
+        renderPackingSuggestions(state.currentTrip.weather);
+        renderSummary(itinerary, currency);
+        toast('Day ' + dayData.day + ' regenerated!');
+    } catch (e) {
+        console.error('Regenerate failed:', e);
+        toast('Regeneration failed — try again');
+    }
+
+    if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ph ph-arrows-clockwise"></i> Regenerate day';
+    }
+}
+
+// Make regenerateDay available globally for onclick handlers
+window.regenerateDay = regenerateDay;
 
 // ─── Focused AI Questions ──────────────────────────────────────────────────
 
@@ -245,8 +304,6 @@ RULES:
 
 function cleanCost(text) {
     if (!text) return '0';
-    // Extract just numbers and dashes: "€Approx. 25€ per person" → "25"
-    // "80-150" → "80-150", "Free" → "0", "€10€" → "10"
     const cleaned = text.replace(/free/i, '0');
     const match = cleaned.match(/(\d+(?:\s*[-–]\s*\d+)?)/);
     return match ? match[1].replace(/\s/g, '') : '0';
@@ -269,10 +326,9 @@ function parseActivities(text) {
         }
     }
 
-    // Detect garbled/hallucinated output (non-latin characters, very short)
+    // Detect garbled/hallucinated output
     const allText = JSON.stringify(result);
     if (/[\u4e00-\u9fff\u0400-\u04ff]/.test(allText)) {
-        // Contains Chinese/Cyrillic — likely hallucination, return generic
         return { title: result.title || 'Exploration Day', morning: result.morning?.activity && !/[\u4e00-\u9fff]/.test(result.morning.activity) ? result.morning : { activity: 'Explore the city center', location: 'City center', duration: '2h', cost: '0', tip: 'Wear comfortable shoes' }, afternoon: result.afternoon?.activity && !/[\u4e00-\u9fff]/.test(result.afternoon.activity) ? result.afternoon : { activity: 'Visit local museum or landmark', location: 'Main square', duration: '3h', cost: '5', tip: 'Check opening hours' }, evening: result.evening?.activity && !/[\u4e00-\u9fff]/.test(result.evening.activity) ? result.evening : { activity: 'Dinner at local restaurant', location: 'City center', duration: '2h', cost: '40', tip: 'Make a reservation' } };
     }
 
@@ -292,7 +348,6 @@ function parseSlot(text) {
 
 function parseHotel(text) {
     const parts = text.split('|').map(s => s.trim());
-    // Handle case where model doesn't use pipe format
     if (parts.length < 2) {
         const nums = text.match(/\d+/);
         return { name: text.slice(0, 50), neighborhood: '', price_night: nums ? nums[0] : '80' };
@@ -347,13 +402,26 @@ function cleanDuration(text) {
 function renderItinerary(itinerary, currency) {
     const container = document.getElementById('itinerary-days');
 
-    container.innerHTML = itinerary.map(day => {
+    // Render sticky day navigation
+    const navHtml = `
+        <nav class="day-nav" id="day-nav">
+            <div class="day-nav-inner">
+                ${itinerary.map((day, i) => `
+                    <button class="day-nav-pill" data-day-index="${i}" onclick="document.getElementById('day-card-${i}').scrollIntoView({behavior:'smooth', block:'start'})">
+                        Day ${day.day}${day.location ? ' · ' + day.location : ''}
+                    </button>
+                `).join('')}
+            </div>
+        </nav>`;
+
+    // Render day cards
+    const cardsHtml = itinerary.map((day, idx) => {
         const w = day.weather ? `<span class="day-weather">${day.weather.icon} ${Math.round(day.weather.tempMax)}°/${Math.round(day.weather.tempMin)}°</span>` : '';
         const loc = day.location ? `<span class="day-location"><i class="ph ph-map-pin"></i> ${day.location}</span>` : '';
 
-        const gettingThere = (day.getting_there && Array.isArray(day.getting_there)) ? renderTransportBlock('Getting there', 'ph-airplane-takeoff', day.getting_there) : '';
-        const returnTrip = (day.return_trip && Array.isArray(day.return_trip)) ? renderTransportBlock(`Return to ${state.origin}`, 'ph-airplane-landing', day.return_trip) : '';
-        const interCity = (day.inter_city_transport && Array.isArray(day.inter_city_transport)) ? renderTransportBlock('Next city', 'ph-arrow-right', day.inter_city_transport) : '';
+        const gettingThere = (day.getting_there && Array.isArray(day.getting_there)) ? renderTransportPills('Getting there', 'ph-airplane-takeoff', day.getting_there) : '';
+        const returnTrip = (day.return_trip && Array.isArray(day.return_trip)) ? renderTransportPills(`Return to ${state.origin}`, 'ph-airplane-landing', day.return_trip) : '';
+        const interCity = (day.inter_city_transport && Array.isArray(day.inter_city_transport)) ? renderTransportPills('Next city', 'ph-arrow-right', day.inter_city_transport) : '';
 
         const accom = day.accommodation ? `
             <div class="day-accommodation">
@@ -363,55 +431,67 @@ function renderItinerary(itinerary, currency) {
                 ${day.accommodation.neighborhood ? `<span class="accom-area">${day.accommodation.neighborhood}</span>` : ''}
             </div>` : '';
 
+        // Daily budget calculation
+        const budgetLine = renderDayBudget(day, currency);
+
         return `
-        <div class="day-card">
-            <div class="day-header">
+        <div class="day-card" id="day-card-${idx}">
+            <div class="day-header" onclick="this.parentElement.classList.toggle('collapsed')">
                 <span class="day-number">Day ${day.day}</span>
                 <span class="day-title">${day.title}</span>
                 ${loc}
                 ${w}
+                <i class="ph ph-caret-down day-collapse-icon"></i>
             </div>
             ${gettingThere}
             <div class="day-slots">
-                ${day.morning ? renderSlot('Morning', day.morning, 'ph-sun') : ''}
-                ${day.afternoon ? renderSlot('Afternoon', day.afternoon, 'ph-sun-dim') : ''}
-                ${day.evening ? renderSlot('Evening', day.evening, 'ph-moon') : ''}
+                ${day.morning ? renderSlot('Morning', day.morning, 'ph-sun', 'slot-morning') : ''}
+                ${day.afternoon ? renderSlot('Afternoon', day.afternoon, 'ph-sun-dim', 'slot-afternoon') : ''}
+                ${day.evening ? renderSlot('Evening', day.evening, 'ph-moon', 'slot-evening') : ''}
             </div>
             <div class="day-footer">
                 ${accom}
                 ${day.food_rec ? `<span class="day-meta"><i class="ph ph-fork-knife"></i> ${day.food_rec}</span>` : ''}
             </div>
+            ${budgetLine}
             ${interCity}
             ${returnTrip}
-        </div>`;
-    }).join('');
-}
-
-function renderTransportBlock(title, icon, options) {
-    return `
-        <div class="getting-there${title.includes('Return') ? ' return' : ''}">
-            <span class="gt-label"><i class="ph ${icon}"></i> ${title}</span>
-            <div class="gt-options">
-                ${options.map(opt => {
-                    const costDisplay = opt.cost && opt.cost !== '0' ? `${currency_symbol}${opt.cost}` : '';
-                    const durationDisplay = opt.duration || '';
-                    const separator = durationDisplay && costDisplay ? ' · ' : '';
-                    return `
-                    <div class="gt-option">
-                        <span class="gt-mode">${opt.mode}</span>
-                        <span class="gt-detail">${durationDisplay}${separator}${costDisplay}</span>
-                        ${opt.details ? `<span class="gt-info">${opt.details}</span>` : ''}
-                    </div>`;
-                }).join('')}
+            <div class="day-regen-bar">
+                <button class="regen-btn" data-regen-day="${idx}" onclick="window.regenerateDay(${idx})">
+                    <i class="ph ph-arrows-clockwise"></i> Regenerate day
+                </button>
             </div>
         </div>`;
+    }).join('');
+
+    container.innerHTML = navHtml + cardsHtml;
+
+    // Set up scroll-based active pill highlighting
+    setupDayNavHighlighting();
 }
 
-function renderSlot(label, slot, icon) {
+function renderTransportPills(title, icon, options) {
+    return `
+        <div class="transport-pills">
+            <span class="transport-pills-label"><i class="ph ${icon}"></i> ${title}</span>
+            ${options.map(opt => {
+                const costDisplay = opt.cost && opt.cost !== '0' ? `${currency_symbol}${opt.cost}` : '';
+                const durationDisplay = opt.duration || '';
+                return `
+                <span class="transport-pill">
+                    <span class="pill-mode">${opt.mode}</span>
+                    ${durationDisplay ? `<span class="pill-detail">${durationDisplay}</span>` : ''}
+                    ${costDisplay ? `<span class="pill-cost">${costDisplay}</span>` : ''}
+                </span>`;
+            }).join('')}
+        </div>`;
+}
+
+function renderSlot(label, slot, icon, timeClass) {
     if (!slot) return '';
     const costDisplay = slot.cost && slot.cost !== '0' ? `${currency_symbol}${slot.cost}` : 'Free';
     return `
-        <div class="time-slot">
+        <div class="time-slot ${timeClass}">
             <div class="slot-time"><i class="ph ${icon}"></i><span>${label}</span></div>
             <div class="slot-content">
                 <span class="slot-activity">${slot.activity}</span>
@@ -425,8 +505,229 @@ function renderSlot(label, slot, icon) {
         </div>`;
 }
 
+function renderDayBudget(day, currency) {
+    let activitiesCost = 0;
+    let foodCost = 0;
+    let hotelCost = 0;
+
+    ['morning', 'afternoon', 'evening'].forEach(slot => {
+        if (day[slot]) {
+            const costStr = cleanCost(day[slot].cost);
+            const num = parseFloat(costStr.split('-')[0]);
+            if (!isNaN(num)) activitiesCost += num;
+        }
+    });
+
+    // Estimate food cost based on budget level
+    const foodEstimates = { backpacker: 20, moderate: 45, comfort: 75, luxury: 120 };
+    foodCost = foodEstimates[state.budget] || 45;
+
+    if (day.accommodation) {
+        const accom = parseFloat(cleanCost(day.accommodation.price_night));
+        if (!isNaN(accom)) hotelCost = accom;
+    }
+
+    const dayTotal = activitiesCost + foodCost + hotelCost;
+
+    return `
+        <div class="day-budget-line">
+            <span class="budget-item"><i class="ph ph-ticket"></i> Activities: ${currency.symbol}${Math.round(activitiesCost)}</span>
+            <span class="budget-separator">+</span>
+            <span class="budget-item"><i class="ph ph-fork-knife"></i> Food: ~${currency.symbol}${foodCost}</span>
+            <span class="budget-separator">+</span>
+            <span class="budget-item"><i class="ph ph-bed"></i> Hotel: ${currency.symbol}${hotelCost}</span>
+            <span class="budget-separator">=</span>
+            <span class="budget-total">${currency.symbol}${Math.round(dayTotal)}/day</span>
+        </div>`;
+}
+
+function setupDayNavHighlighting() {
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const idx = entry.target.id.replace('day-card-', '');
+                document.querySelectorAll('.day-nav-pill').forEach(p => p.classList.remove('active'));
+                const pill = document.querySelector(`.day-nav-pill[data-day-index="${idx}"]`);
+                if (pill) {
+                    pill.classList.add('active');
+                    // Scroll pill into view within the nav
+                    pill.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                }
+            }
+        });
+    }, { threshold: 0.3, rootMargin: `-${parseInt(getComputedStyle(document.documentElement).getPropertyValue('--nav-height')) + 50}px 0px -50% 0px` });
+
+    document.querySelectorAll('.day-card[id^="day-card-"]').forEach(card => observer.observe(card));
+}
+
+// ─── Trip Summary Card (at top, before day-by-day) ─────────────────────────
+
+function renderTripSummaryCard(itinerary, currency, weather) {
+    const container = document.getElementById('itinerary-days');
+    const navEl = container.querySelector('.day-nav');
+
+    let totalCost = 0;
+    let totalAccom = 0;
+    const citiesVisited = new Set();
+    const highlights = [];
+
+    itinerary.forEach(day => {
+        citiesVisited.add(day.location);
+        ['morning', 'afternoon', 'evening'].forEach(slot => {
+            if (day[slot]) {
+                const costStr = cleanCost(day[slot].cost);
+                const num = parseFloat(costStr.split('-')[0]);
+                if (!isNaN(num)) totalCost += num;
+            }
+        });
+        if (day.accommodation) {
+            const accom = parseFloat(cleanCost(day.accommodation.price_night));
+            if (!isNaN(accom)) totalAccom += accom;
+        }
+        // Collect highlights (morning activities tend to be the main attractions)
+        if (day.morning && day.morning.activity) highlights.push(day.morning.activity);
+    });
+
+    // Food estimate
+    const foodEstimates = { backpacker: 20, moderate: 45, comfort: 75, luxury: 120 };
+    const totalFood = (foodEstimates[state.budget] || 45) * itinerary.length;
+    const grandTotal = totalCost + totalAccom + totalFood;
+
+    // Weather summary
+    let weatherSummary = '';
+    if (weather && weather.length > 0) {
+        const avgTemp = Math.round(weather.reduce((s, w) => s + w.tempMax, 0) / weather.length);
+        weatherSummary = `~${avgTemp}° avg`;
+    }
+
+    const summaryCard = document.createElement('div');
+    summaryCard.className = 'trip-summary-card';
+    summaryCard.innerHTML = `
+        <div class="trip-summary-title"><i class="ph ph-compass"></i> Trip Overview — ${state.destination}</div>
+        <div class="trip-summary-grid">
+            <div class="trip-summary-stat"><span class="stat-value">${itinerary.length}</span><span class="stat-label">Days</span></div>
+            <div class="trip-summary-stat"><span class="stat-value">${citiesVisited.size}</span><span class="stat-label">Cities</span></div>
+            <div class="trip-summary-stat"><span class="stat-value">${currency.symbol}${Math.round(grandTotal)}</span><span class="stat-label">Est. Total</span></div>
+            ${weatherSummary ? `<div class="trip-summary-stat"><span class="stat-value">${weatherSummary}</span><span class="stat-label">Weather</span></div>` : ''}
+        </div>
+        ${highlights.length > 0 ? `
+        <div class="trip-highlights">
+            ${highlights.slice(0, 5).map(h => `<span class="trip-highlight-chip">${h}</span>`).join('')}
+        </div>` : ''}
+    `;
+
+    // Insert after nav, before day cards
+    const existingSummary = container.querySelector('.trip-summary-card');
+    if (existingSummary) existingSummary.remove();
+
+    if (navEl && navEl.nextSibling) {
+        container.insertBefore(summaryCard, navEl.nextSibling);
+    } else {
+        container.prepend(summaryCard);
+    }
+}
+
+// ─── Packing Suggestions ───────────────────────────────────────────────────
+
+function renderPackingSuggestions(weather) {
+    const container = document.getElementById('trip-summary');
+
+    // Remove existing packing section
+    const existing = container.querySelector('.packing-section');
+    if (existing) existing.remove();
+
+    if (!weather || weather.length === 0) return;
+
+    // Analyze weather conditions
+    const avgTemp = weather.reduce((s, w) => s + (w.tempMax + w.tempMin) / 2, 0) / weather.length;
+    const hasRain = weather.some(w => w.precipitation > 2 || (w.icon && /🌧|🌦|⛈|🌨/.test(w.icon)));
+    const isHot = avgTemp > 28;
+    const isCold = avgTemp < 12;
+    const isMild = !isHot && !isCold;
+    const hasWind = weather.some(w => w.windSpeed > 30);
+
+    const categories = [];
+
+    // Essentials always
+    categories.push({
+        title: 'Essentials',
+        icon: 'ph-backpack',
+        items: ['Passport & copies', 'Phone charger & adapter', 'Reusable water bottle', 'Day bag / backpack', 'Travel documents']
+    });
+
+    // Weather-based clothing
+    if (isHot) {
+        categories.push({
+            title: 'Hot Weather',
+            icon: 'ph-sun',
+            items: ['Sunscreen SPF 50+', 'Sunglasses', 'Wide-brim hat', 'Light breathable clothes', 'Sandals', 'Aloe vera gel']
+        });
+    } else if (isCold) {
+        categories.push({
+            title: 'Cold Weather',
+            icon: 'ph-snowflake',
+            items: ['Warm layers', 'Thermal base layer', 'Insulated jacket', 'Warm hat & gloves', 'Scarf', 'Warm socks']
+        });
+    } else if (isMild) {
+        categories.push({
+            title: 'Mild Weather',
+            icon: 'ph-cloud-sun',
+            items: ['Light layers', 'Long-sleeve shirt', 'Light jacket', 'Comfortable walking shoes', 'Sunglasses']
+        });
+    }
+
+    if (hasRain) {
+        categories.push({
+            title: 'Rain Gear',
+            icon: 'ph-cloud-rain',
+            items: ['Waterproof jacket', 'Compact umbrella', 'Waterproof bag cover', 'Quick-dry clothes', 'Waterproof shoes']
+        });
+    }
+
+    if (hasWind) {
+        categories.push({
+            title: 'Windy Conditions',
+            icon: 'ph-wind',
+            items: ['Windbreaker', 'Secure hat with strap', 'Lip balm', 'Hair ties']
+        });
+    }
+
+    // Activity-based
+    if (state.interests.includes('nature') || state.interests.includes('adventure')) {
+        categories.push({
+            title: 'Outdoor Activities',
+            icon: 'ph-mountains',
+            items: ['Hiking shoes', 'Moisture-wicking socks', 'Insect repellent', 'First aid basics', 'Headlamp']
+        });
+    }
+
+    const packingHtml = `
+        <div class="packing-section">
+            <div class="packing-title"><i class="ph ph-suitcase-rolling"></i> Packing Suggestions</div>
+            <div class="packing-grid">
+                ${categories.map(cat => `
+                    <div class="packing-category">
+                        <div class="packing-category-title"><i class="ph ${cat.icon}"></i> ${cat.title}</div>
+                        <ul class="packing-items">
+                            ${cat.items.map(item => `<li>${item}</li>`).join('')}
+                        </ul>
+                    </div>
+                `).join('')}
+            </div>
+        </div>`;
+
+    container.insertAdjacentHTML('beforeend', packingHtml);
+}
+
+// ─── Bottom Summary (existing, kept for compatibility) ─────────────────────
+
 function renderSummary(itinerary, currency) {
     const summary = document.getElementById('trip-summary');
+
+    // Remove existing summary-cards if present (but keep packing)
+    const existingCards = summary.querySelector('.summary-cards');
+    if (existingCards) existingCards.remove();
+
     let totalActivities = 0, totalCost = 0, totalAccom = 0;
     const uniqueHotels = new Set();
 
@@ -435,7 +736,6 @@ function renderSummary(itinerary, currency) {
             if (day[slot]) {
                 totalActivities++;
                 const costStr = cleanCost(day[slot].cost);
-                // Handle ranges like "80-150" — take the lower bound
                 const num = parseFloat(costStr.split('-')[0]);
                 if (!isNaN(num)) totalCost += num;
             }
@@ -447,7 +747,7 @@ function renderSummary(itinerary, currency) {
         }
     });
 
-    summary.innerHTML = `
+    const cardsHtml = `
         <div class="summary-cards">
             <div class="summary-card"><span class="summary-value">${itinerary.length}</span><span class="summary-label">Days</span></div>
             <div class="summary-card"><span class="summary-value">${totalActivities}</span><span class="summary-label">Activities</span></div>
@@ -456,4 +756,6 @@ function renderSummary(itinerary, currency) {
             <div class="summary-card"><span class="summary-value">${currency.symbol}${Math.round(totalAccom)}</span><span class="summary-label">Accommodation</span></div>
             <div class="summary-card"><span class="summary-value">${currency.symbol}${Math.round(totalCost + totalAccom)}</span><span class="summary-label">Est. Total</span></div>
         </div>`;
+
+    summary.insertAdjacentHTML('afterbegin', cardsHtml);
 }
