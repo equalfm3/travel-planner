@@ -1,5 +1,6 @@
 import state from '../core/state.js';
 import { showSection, saveTrips, toast } from '../core/utils.js';
+import { renderItinerary, renderTripSummaryCard, renderPackingSuggestions } from './planner.js';
 
 export function saveCurrentTrip() {
     if (!state.currentTrip) { toast('No trip to save'); return; }
@@ -30,6 +31,44 @@ export function showSavedTrips() {
             </div>
         </div>
     `).join('');
+
+    // Add click handlers to load saved trips
+    grid.querySelectorAll('.saved-card').forEach(card => {
+        card.addEventListener('click', () => {
+            const idx = parseInt(card.dataset.idx);
+            loadSavedTrip(idx);
+        });
+    });
+}
+
+function loadSavedTrip(idx) {
+    const trip = state.savedTrips[idx];
+    if (!trip) return;
+
+    // Restore as current trip
+    state.currentTrip = trip;
+    state.destination = trip.destination;
+    state.days = String(trip.days);
+    state.budget = trip.budget;
+    state.travelers = trip.travelers;
+    state.interests = trip.interests || [];
+
+    // Show itinerary section
+    showSection('itinerary-section');
+
+    // Hide loading state
+    const loading = document.getElementById('loading-state');
+    loading.classList.remove('visible');
+
+    // Clear and render
+    const daysContainer = document.getElementById('itinerary-days');
+    const summaryContainer = document.getElementById('trip-summary');
+    daysContainer.innerHTML = '';
+    summaryContainer.innerHTML = '';
+
+    renderItinerary(trip.itinerary, trip.currency);
+    renderTripSummaryCard(trip.itinerary, trip.currency, trip.weather);
+    renderPackingSuggestions(trip.weather);
 }
 
 export function copyTrip() {

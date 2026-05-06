@@ -18,7 +18,31 @@ export function showSection(id) {
 }
 
 export function saveTrips() {
-    localStorage.setItem('wandr-trips', JSON.stringify(state.savedTrips.slice(0, 20)));
+    const data = state.savedTrips.slice(0, 20);
+    // Save to localStorage as fallback
+    localStorage.setItem('wandr-trips', JSON.stringify(data));
+    // Persist to server (trips.json file)
+    fetch('/api/trips', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+    }).catch(() => { /* server unavailable, localStorage still works */ });
+}
+
+export async function loadTrips() {
+    try {
+        const res = await fetch('/api/trips');
+        if (res.ok) {
+            const trips = await res.json();
+            if (trips.length > 0) {
+                state.savedTrips = trips;
+                localStorage.setItem('wandr-trips', JSON.stringify(trips));
+                return;
+            }
+        }
+    } catch (e) { /* server unavailable, fall back to localStorage */ }
+    // Fallback to localStorage
+    state.savedTrips = JSON.parse(localStorage.getItem('wandr-trips') || '[]');
 }
 
 export function parseJSON(text, type = 'array') {

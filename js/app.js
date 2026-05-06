@@ -1,6 +1,6 @@
 import state from './core/state.js';
 import { checkOllama } from './core/ollama.js';
-import { showSection, toast } from './core/utils.js';
+import { showSection, toast, loadTrips } from './core/utils.js';
 import { generateTrip } from './features/planner.js';
 import { saveCurrentTrip, showSavedTrips, copyTrip, printTrip } from './features/saved.js';
 
@@ -75,6 +75,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     checkOllama();
+    loadTrips();
 });
 
 // ─── Inline UI utils ───

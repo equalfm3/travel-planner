@@ -10,6 +10,14 @@ Give a destination, budget, and number of days. Get a detailed itinerary with re
 
 ---
 
+## Screenshots
+
+| Input | Output |
+|-------|--------|
+| ![Sample Input](assets/sample-input.png) | ![Sample Output](assets/sample-output.png) |
+
+---
+
 ## Features
 
 | Feature | Description |
@@ -21,7 +29,7 @@ Give a destination, budget, and number of days. Get a detailed itinerary with re
 | **Budget Levels** | Backpacker, moderate, comfort, luxury — adjusts recommendations |
 | **Traveler Types** | Solo, couple, family, friends — tailored suggestions |
 | **Interests** | Culture, food, nature, nightlife, adventure, relaxation, shopping, history, photography |
-| **Save Trips** | Persist to localStorage, browse saved itineraries |
+| **Save Trips** | Persist to local `trips.json` file — survives browser cache clears |
 | **Copy & Print** | Export as text or print-friendly format |
 
 ---
@@ -32,11 +40,11 @@ Give a destination, budget, and number of days. Get a detailed itinerary with re
 # 1. Make sure Ollama is running
 ollama serve
 
-# 2. Serve the app
-python3 -m http.server 8080
+# 2. Start the server
+node server.js
 
 # 3. Open
-open http://localhost:8080
+open http://localhost:3000
 ```
 
 ---
@@ -54,16 +62,20 @@ open http://localhost:8080
 ## Architecture
 
 ```
-js/
-├── app.js              ← Bootstrap + UI utils
-├── core/
-│   ├── state.js        ← Global state
-│   ├── ollama.js       ← LLM communication
-│   ├── apis.js         ← Weather, geocoding, currency
-│   └── utils.js        ← Helpers
-└── features/
-    ├── planner.js      ← Trip generation logic
-    └── saved.js        ← Save, copy, print
+├── server.js           ← Local server (static files + trips persistence)
+├── trips.json          ← Saved trips (auto-generated, gitignored)
+├── index.html
+├── styles.css
+└── js/
+    ├── app.js          ← Bootstrap + UI utils
+    ├── core/
+    │   ├── state.js    ← Global state
+    │   ├── ollama.js   ← LLM communication
+    │   ├── apis.js     ← Weather, geocoding
+    │   └── utils.js    ← Helpers + persistence
+    └── features/
+        ├── planner.js  ← Trip generation & rendering
+        └── saved.js    ← Save, load, copy, print
 ```
 
 No frameworks. No build step. ES modules.

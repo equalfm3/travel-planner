@@ -237,7 +237,8 @@ body { font-family: var(--font-sans); background: var(--bg-primary); color: var(
 .day-card.collapsed .day-footer,
 .day-card.collapsed .getting-there,
 .day-card.collapsed .day-budget-line,
-.day-card.collapsed .day-regen-bar {
+.day-card.collapsed .day-regen-bar,
+.day-card.collapsed .transport-pills {
     display: none;
 }
 
@@ -300,6 +301,33 @@ body { font-family: var(--font-sans); background: var(--bg-primary); color: var(
     font-family: var(--font-mono);
     font-size: 10px;
     color: var(--color-warm);
+}
+.trip-summary-breakdown {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-subtle);
+}
+.trip-summary-breakdown .breakdown-item {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.trip-summary-breakdown .breakdown-total {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-primary);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
 }
 
 /* ─── Daily Budget Line ─── */

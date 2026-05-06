@@ -22,8 +22,6 @@ export async function generateTrip() {
     const loadingText = document.getElementById('loading-text');
     const daysContainer = document.getElementById('itinerary-days');
     const summaryContainer = document.getElementById('trip-summary');
-    const infoSection = document.getElementById('info-section');
-    const infoCards = document.getElementById('info-cards');
 
     loading.classList.add('visible');
     daysContainer.innerHTML = '';
@@ -46,15 +44,9 @@ export async function generateTrip() {
     const currency = { code: currParts[0] || 'EUR', symbol: currParts[1] || '€' };
     currency_symbol = currency.symbol;
 
-    // Show info cards
-    document.getElementById('info-title').textContent = dest;
-    infoCards.innerHTML = `
-        <div class="info-card"><i class="ph ph-map-pin"></i><span class="info-value">${geo ? geo.display.split(',').slice(0, 2).join(',') : dest}</span><span class="info-label">Location</span></div>
-        <div class="info-card"><i class="ph ph-currency-dollar"></i><span class="info-value">${currency.code} (${currency.symbol})</span><span class="info-label">Currency</span></div>
-        ${weather ? `<div class="info-card"><i class="ph ph-thermometer"></i><span class="info-value">${Math.round(weather[0]?.tempMax)}° / ${Math.round(weather[0]?.tempMin)}°</span><span class="info-label">Forecast</span></div>` : ''}
-        <div class="info-card"><i class="ph ph-calendar"></i><span class="info-value">${days} days</span><span class="info-label">Duration</span></div>
-    `;
-    infoSection.classList.add('visible');
+    // Store info data in background (no visible section 02)
+    state.geoDisplay = geo ? geo.display.split(',').slice(0, 2).join(',') : dest;
+    state.currencyInfo = currency;
 
     // ─── Step 1: Route (which cities each day) ───
     loadingText.textContent = 'Planning route...';
@@ -133,7 +125,6 @@ export async function generateTrip() {
     renderItinerary(itinerary, currency);
     renderTripSummaryCard(itinerary, currency, weather);
     renderPackingSuggestions(weather);
-    renderSummary(itinerary, currency);
 }
 
 // ─── Regenerate Day ────────────────────────────────────────────────────────
@@ -177,7 +168,6 @@ export async function regenerateDay(dayIndex) {
         renderItinerary(itinerary, currency);
         renderTripSummaryCard(itinerary, currency, state.currentTrip.weather);
         renderPackingSuggestions(state.currentTrip.weather);
-        renderSummary(itinerary, currency);
         toast('Day ' + dayData.day + ' regenerated!');
     } catch (e) {
         console.error('Regenerate failed:', e);
@@ -399,8 +389,18 @@ function cleanDuration(text) {
 
 // ─── Rendering ─────────────────────────────────────────────────────────────
 
-function renderItinerary(itinerary, currency) {
+export function renderItinerary(itinerary, currency) {
     const container = document.getElementById('itinerary-days');
+
+    // Ensure module-level currency_symbol is set for sub-renderers
+    currency_symbol = currency.symbol;
+
+    // Track which days are currently unfolded so we preserve user state
+    const unfoldedDays = new Set();
+    container.querySelectorAll('.day-card:not(.collapsed)').forEach(card => {
+        const idx = card.id.replace('day-card-', '');
+        unfoldedDays.add(idx);
+    });
 
     // Render sticky day navigation
     const navHtml = `
@@ -416,6 +416,7 @@ function renderItinerary(itinerary, currency) {
 
     // Render day cards
     const cardsHtml = itinerary.map((day, idx) => {
+        const isCollapsed = !unfoldedDays.has(String(idx));
         const w = day.weather ? `<span class="day-weather">${day.weather.icon} ${Math.round(day.weather.tempMax)}°/${Math.round(day.weather.tempMin)}°</span>` : '';
         const loc = day.location ? `<span class="day-location"><i class="ph ph-map-pin"></i> ${day.location}</span>` : '';
 
@@ -435,7 +436,7 @@ function renderItinerary(itinerary, currency) {
         const budgetLine = renderDayBudget(day, currency);
 
         return `
-        <div class="day-card" id="day-card-${idx}">
+        <div class="day-card${isCollapsed ? ' collapsed' : ''}" id="day-card-${idx}">
             <div class="day-header" onclick="this.parentElement.classList.toggle('collapsed')">
                 <span class="day-number">Day ${day.day}</span>
                 <span class="day-title">${day.title}</span>
@@ -562,19 +563,22 @@ function setupDayNavHighlighting() {
 
 // ─── Trip Summary Card (at top, before day-by-day) ─────────────────────────
 
-function renderTripSummaryCard(itinerary, currency, weather) {
+export function renderTripSummaryCard(itinerary, currency, weather) {
     const container = document.getElementById('itinerary-days');
     const navEl = container.querySelector('.day-nav');
 
     let totalCost = 0;
     let totalAccom = 0;
+    let totalActivities = 0;
     const citiesVisited = new Set();
+    const uniqueHotels = new Set();
     const highlights = [];
 
     itinerary.forEach(day => {
         citiesVisited.add(day.location);
         ['morning', 'afternoon', 'evening'].forEach(slot => {
             if (day[slot]) {
+                totalActivities++;
                 const costStr = cleanCost(day[slot].cost);
                 const num = parseFloat(costStr.split('-')[0]);
                 if (!isNaN(num)) totalCost += num;
@@ -583,6 +587,7 @@ function renderTripSummaryCard(itinerary, currency, weather) {
         if (day.accommodation) {
             const accom = parseFloat(cleanCost(day.accommodation.price_night));
             if (!isNaN(accom)) totalAccom += accom;
+            uniqueHotels.add(day.accommodation.name);
         }
         // Collect highlights (morning activities tend to be the main attractions)
         if (day.morning && day.morning.activity) highlights.push(day.morning.activity);
@@ -607,6 +612,7 @@ function renderTripSummaryCard(itinerary, currency, weather) {
         <div class="trip-summary-grid">
             <div class="trip-summary-stat"><span class="stat-value">${itinerary.length}</span><span class="stat-label">Days</span></div>
             <div class="trip-summary-stat"><span class="stat-value">${citiesVisited.size}</span><span class="stat-label">Cities</span></div>
+            <div class="trip-summary-stat"><span class="stat-value">${totalActivities}</span><span class="stat-label">Activities</span></div>
             <div class="trip-summary-stat"><span class="stat-value">${currency.symbol}${Math.round(grandTotal)}</span><span class="stat-label">Est. Total</span></div>
             ${weatherSummary ? `<div class="trip-summary-stat"><span class="stat-value">${weatherSummary}</span><span class="stat-label">Weather</span></div>` : ''}
         </div>
@@ -614,6 +620,13 @@ function renderTripSummaryCard(itinerary, currency, weather) {
         <div class="trip-highlights">
             ${highlights.slice(0, 5).map(h => `<span class="trip-highlight-chip">${h}</span>`).join('')}
         </div>` : ''}
+        <div class="trip-summary-breakdown">
+            <span class="breakdown-item"><i class="ph ph-ticket"></i> ${totalActivities} Activities</span>
+            <span class="breakdown-item"><i class="ph ph-bed"></i> ${uniqueHotels.size} Hotels</span>
+            <span class="breakdown-item"><i class="ph ph-ticket"></i> ${currency.symbol}${Math.round(totalCost)} Activities</span>
+            <span class="breakdown-item"><i class="ph ph-bed"></i> ${currency.symbol}${Math.round(totalAccom)} Accommodation</span>
+            <span class="breakdown-total"><i class="ph ph-wallet"></i> ${currency.symbol}${Math.round(grandTotal)} Est. Total</span>
+        </div>
     `;
 
     // Insert after nav, before day cards
@@ -629,7 +642,7 @@ function renderTripSummaryCard(itinerary, currency, weather) {
 
 // ─── Packing Suggestions ───────────────────────────────────────────────────
 
-function renderPackingSuggestions(weather) {
+export function renderPackingSuggestions(weather) {
     const container = document.getElementById('trip-summary');
 
     // Remove existing packing section
@@ -719,43 +732,4 @@ function renderPackingSuggestions(weather) {
     container.insertAdjacentHTML('beforeend', packingHtml);
 }
 
-// ─── Bottom Summary (existing, kept for compatibility) ─────────────────────
-
-function renderSummary(itinerary, currency) {
-    const summary = document.getElementById('trip-summary');
-
-    // Remove existing summary-cards if present (but keep packing)
-    const existingCards = summary.querySelector('.summary-cards');
-    if (existingCards) existingCards.remove();
-
-    let totalActivities = 0, totalCost = 0, totalAccom = 0;
-    const uniqueHotels = new Set();
-
-    itinerary.forEach(day => {
-        ['morning', 'afternoon', 'evening'].forEach(slot => {
-            if (day[slot]) {
-                totalActivities++;
-                const costStr = cleanCost(day[slot].cost);
-                const num = parseFloat(costStr.split('-')[0]);
-                if (!isNaN(num)) totalCost += num;
-            }
-        });
-        if (day.accommodation) {
-            const accom = parseFloat(cleanCost(day.accommodation.price_night));
-            if (!isNaN(accom)) totalAccom += accom;
-            uniqueHotels.add(day.accommodation.name);
-        }
-    });
-
-    const cardsHtml = `
-        <div class="summary-cards">
-            <div class="summary-card"><span class="summary-value">${itinerary.length}</span><span class="summary-label">Days</span></div>
-            <div class="summary-card"><span class="summary-value">${totalActivities}</span><span class="summary-label">Activities</span></div>
-            <div class="summary-card"><span class="summary-value">${uniqueHotels.size}</span><span class="summary-label">Hotels</span></div>
-            <div class="summary-card"><span class="summary-value">${currency.symbol}${Math.round(totalCost)}</span><span class="summary-label">Activities</span></div>
-            <div class="summary-card"><span class="summary-value">${currency.symbol}${Math.round(totalAccom)}</span><span class="summary-label">Accommodation</span></div>
-            <div class="summary-card"><span class="summary-value">${currency.symbol}${Math.round(totalCost + totalAccom)}</span><span class="summary-label">Est. Total</span></div>
-        </div>`;
-
-    summary.insertAdjacentHTML('afterbegin', cardsHtml);
-}
+// ─── Bottom Summary (removed — merged into Trip Overview card) ─────────────
